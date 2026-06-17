@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Gravity Sandbox & Space Simulator</title>
+<style>
+body{margin:0;background:#111;color:white;font-family:Arial}
+#ui{position:fixed;top:10px;left:10px;background:rgba(0,0,0,.75);padding:10px;border-radius:10px;z-index:10}
+button,input,select{margin:2px}
+canvas{display:block}
+</style>
+</head>
+<body>
+<div id="ui">
+<button id="addSphere">Add Sphere</button>
+<button id="clearSpheres">Delete All Spheres</button>
+<button id="addSource">Add Gravity Source</button>
+<button id="clearSources">Delete Sources</button>
+<button id="pauseBtn">Pause</button>
+<button id="viewBtn">Top View</button>
+<label>G <input type="range" id="gSlider" min="0" max="200" value="30"></label>
+<span id="gVal">30</span>
+<select id="sourceType">
+<option>Planet</option>
+<option>Black Hole</option>
+<option>Repulsor</option>
+</select>
+</div>
+<canvas id="c"></canvas>
+<script>
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight;}
+resize(); addEventListener("resize",resize);
+
+let paused=false;
+let topView=true;
+let G=30;
+
+const spheres=[];
+const sources=[];
+
+function addSphere(){
+spheres.push({
+x:Math.random()*canvas.width,
+y:Math.random()*canvas.height,
+vx:(Math.random()-0.5)*20,
+vy:(Math.random()-0.5)*20,
+r:10+Math.random()*10,
+mass:20+Math.random()*40,
+trail:[]
+});
+}
+for(let i=0;i<5;i++) addSphere();
+
+document.getElementById("addSphere").onclick=addSphere;
+document.getElementById("clearSpheres").onclick=()=>spheres.length=0;
+document.getElementById("clearSources").onclick=()=>sources.length=0;
+
+document.getElementById("pauseBtn").onclick=()=>{
+paused=!paused;
+};
+
+document.getElementById("viewBtn").onclick=()=>{
+topView=!topView;
+document.getElementById("viewBtn").textContent=topView?"Top View":"Side View";
+};
+
+document.getElementById("gSlider").oninput=e=>{
+G=+e.target.value;
+gVal.textContent=G;
+};
+
+let addingSource=false;
+document.getElementById("addSource").onclick=()=>addingSource=true;
+
+canvas.onclick=e=>{
+if(!addingSource) return;
+addingSource=false;
+
+let type=document.getElementById("sourceType").value;
+let mass=10000;
+if(type==="Black Hole") mass=50000;
+if(type==="Repulsor") mass=-15000;
+
+sources.push({x:e.clientX,y:e.clientY,mass,type});
+};
+
+const table={x:200,y:400,w:800,h:20};
+
+let last=performance.now();
+
+function update(dt){
+
+for(let s of spheres){
+
+for(let src of sources){
+let dx=src.x-s.x;
+let dy=src.y-s.y;
+let d=Math.sqrt(dx*dx+dy*dy)+5;
+
+let force=(G*src.mass*s.mass)/(d*d);
+
+let ax=(force/s.mass)*(dx/d);
+let ay=(force/s.mass)*(dy/d);
+
+s.vx+=ax*dt;
+s.vy+=ay*dt;
+}
+
+for(let other of spheres){
+if(s===other) continue;
+
+let dx=other.x-s.x;
+let dy=other.y-s.y;
+let d=Math.sqrt(dx*dx+dy*dy)+1;
+
+let force=(G*other.mass)/(d*d);
+
+s.vx+=(force*dx/d)*dt*0.05;
+s.vy+=(force*dy/d)*dt*0.05;
+}
+
+s.x+=s.vx*dt;
+s.y+=s.vy*dt;
+
+s.vx*=0.999;
+s.vy*=0.999;
+
+if(!topView){
+if(
+s.x>table.x &&
+s.x<table.x+table.w &&
+s.y+s.r>table.y &&
+s.y<table.y+table.h
+){
+s.y=table.y-s.r;
+s.vy*=-0.8;
+}
+}
+
+if(s.x<s.r){s.x=s.r;s.vx*=-0.8;}
+if(s.x>canvas.width-s.r){s.x=canvas.width-s.r;s.vx*=-0.8;}
+if(s.y<s.r){s.y=s.r;s.vy*=-0.8;}
+if(s.y>canvas.height-s.r){s.y=canvas.height-s.r;s.vy*=-0.8;}
+
+s.trail.push({x:s.x,y:s.y});
+if(s.trail.length>100) s.trail.shift();
+}
+
+for(let i=0;i<spheres.length;i++){
+for(let j=i+1;j<spheres.length;j++){
+let a=spheres[i], b=spheres[j];
+let dx=b.x-a.x, dy=b.y-a.y;
+let d=Math.sqrt(dx*dx+dy*dy);
+
+if(d<a.r+b.r && d>0){
+let nx=dx/d, ny=dy/d;
+
+let p=2*((a.vx-b.vx)*nx+(a.vy-b.vy)*ny)/(a.mass+b.mass);
+
+a.vx-=p*b.mass*nx;
+a.vy-=p*b.mass*ny;
+
+b.vx+=p*a.mass*nx;
+b.vy+=p*a.mass*ny;
+}
+}
+}
+}
+
+function draw(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+if(!topView){
+ctx.fillStyle="#8B4513";
+ctx.fillRect(table.x,table.y,table.w,table.h);
+}
+
+for(let src of sources){
+ctx.beginPath();
+ctx.arc(src.x,src.y,12,0,Math.PI*2);
+ctx.fillStyle=src.mass<0?"cyan":(src.type==="Black Hole"?"purple":"yellow");
+ctx.fill();
+
+for(let r=50;r<=250;r+=50){
+ctx.beginPath();
+ctx.arc(src.x,src.y,r,0,Math.PI*2);
+ctx.strokeStyle="rgba(255,255,255,.08)";
+ctx.stroke();
+}
+}
+
+for(let s of spheres){
+
+ctx.beginPath();
+for(let i=1;i<s.trail.length;i++){
+ctx.moveTo(s.trail[i-1].x,s.trail[i-1].y);
+ctx.lineTo(s.trail[i].x,s.trail[i].y);
+}
+ctx.strokeStyle="rgba(255,255,255,.25)";
+ctx.stroke();
+
+ctx.beginPath();
+ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+ctx.fillStyle="red";
+ctx.fill();
+
+ctx.beginPath();
+ctx.moveTo(s.x,s.y);
+ctx.lineTo(s.x+s.vx*2,s.y+s.vy*2);
+ctx.strokeStyle="lime";
+ctx.stroke();
+}
+}
+
+function animate(now){
+let dt=Math.min((now-last)/1000,0.03);
+last=now;
+
+if(!paused) update(dt);
+draw();
+
+requestAnimationFrame(animate);
+}
+animate(performance.now());
+</script>
+</body>
+</html>
